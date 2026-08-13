@@ -446,7 +446,7 @@ def executar_automacao(
     with sync_playwright() as p:
         # -------- FASE 1: ZENDESK --------
         log("===== FASE 1: ZENDESK =====")
-        bz = p.chromium.launch(headless=False, slow_mo=500, args=["--start-maximized"])
+        bz = p.chromium.launch(headless=True, slow_mo=500, args=["--start-maximized"])
         cz = bz.new_context(no_viewport=True)
         pz = cz.new_page()
 
@@ -507,7 +507,7 @@ def executar_automacao(
         # -------- FASE 2: FRACTION --------
         log("===== FASE 2: FRACTION =====")
         if fila_fraction:
-            bf = p.chromium.launch(headless=False, slow_mo=500, args=["--start-maximized"])
+            bf = p.chromium.launch(headless=True, slow_mo=500, args=["--start-maximized"])
             cf = bf.new_context(no_viewport=True)
             pf = cf.new_page()
 
