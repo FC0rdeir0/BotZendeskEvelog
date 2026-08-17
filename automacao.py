@@ -73,8 +73,6 @@ MAPEAMENTO_TEXTO_TICKET = {
         'referência e telefone ativo para contato."'
     ),
 
-    "AUSENTE": "AUSENTE",
-
     "AUSENTE 2": (
         '"Prezados, remessa em questão teve a sua ocorrência de "AUSENTE 2", '
         'favor acionar ao destinatário para podermos evitar que a terceira e ultima '
