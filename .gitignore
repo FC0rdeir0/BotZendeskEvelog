@@ -6,7 +6,8 @@ login.xlsx
 venv/
 
 # Resultados
-resultados/
+resultados/*
+!resultados/.gitkeep
 
 # Python
 __pycache__/
@@ -23,3 +24,5 @@ __pycache__/
 # Sistema
 .DS_Store
 Thumbs.db
+
+perfil_zendesk/

@@ -19,6 +19,7 @@ URL_FRACTION = "https://www.jadlog.com.br/FractionWeb/login.jad"
 
 ARQUIVO_LOGIN = Path("login.xlsx")
 PASTA_RESULTADOS = Path("resultados")
+PERFIL_ZENDESK = Path("perfil_zendesk")
 COLUNAS_OBRIGATORIAS = {"Codigo", "Pedido", "Status", "Descricao"}
 
 MAPEAMENTO_STATUS_ZENDESK = {
@@ -52,35 +53,65 @@ MAPEAMENTO_STATUS_ASSUNTO = {
 }
 
 MAPEAMENTO_TEXTO_TICKET = {
-    "MUDOU-SE": "MUDOU-SE",
+    "MUDOU-SE": (
+        '"Prezados, remessa teve ocorrência de "MUDOU-SE", '
+        'favor confirmar os dados de endereço de entrega, mais ponto de '
+        'referência e telefone ativo para contato."'
+    ),
 
-    "DESTINATARIO DESCONHECIDO": "DESTINATÁRIO DESCONHECIDO",
+    "DESTINATARIO DESCONHECIDO": (
+        '"Prezados, remessa teve ocorrência de "DESTINATARIO DESCONHECIDO", '
+        'favor confirmar os dados de endereço de entrega, mais ponto de '
+        'referência e telefone ativo para contato."'
+    ),
 
     "FECHADO": "FECHADO",
 
     "NUMERO NAO LOCALIZADO": (
-        'Prezados, remessa teve ocorrência de "NÚMERO NÃO LOCALIZADO", '
+        '"Prezados, remessa teve ocorrência de "NÚMERO NÃO LOCALIZADO", '
         'favor confirmar os dados de endereço de entrega, mais ponto de '
-        'referência e telefone ativo para contato.'
+        'referência e telefone ativo para contato."'
     ),
 
     "AUSENTE": "AUSENTE",
 
-    "AUSENTE 2": "AUSENTE 2",
+    "AUSENTE 2": (
+        '"Prezados, remessa em questão teve a sua ocorrência de "AUSENTE 2", '
+        'favor acionar ao destinatário para podermos evitar que a terceira e ultima '
+        'tentativa de entrega resulte em falha."'
+    ),
 
     "AUSENTE 3": "AUSENTE 3",
 
-    "ENDERECO NAO LOCALIZADO": "ENDEREÇO NÃO LOCALIZADO",
-
-    "CEP ERRADO": "CEP ERRADO",
-
-    "RESTRICAO DE ACESSO / MOVIMENTACAO": (
-        "RESTRIÇÃO DE ACESSO / MOVIMENTAÇÃO"
+    "ENDERECO NAO LOCALIZADO": (
+        '"Prezados, remessa teve ocorrência de "ENDERECO NAO LOCALIZADO", '
+        'favor confirmar os dados de endereço de entrega, mais ponto de '
+        'referência e telefone ativo para contato."'
     ),
 
-    "ENDERECO EM ZONA RURAL": "ENDEREÇO EM ZONA RURAL",
+    "CEP ERRADO": (
+        '"Prezados, remessa teve ocorrência de "CEP ERRADO", '
+        'favor confirmar os dados de endereço de entrega, mais ponto de '
+        'referência e telefone ativo para contato."'
+    ),
 
-    "RECUSADO": "RECUSADO",
+    "RESTRICAO DE ACESSO / MOVIMENTACAO": (
+        '"Prezados, remessa em questão foi classificada como "ÁREA DE RISCO", '
+        'por gentileza solicitar ao cliente dados de endereço alternativo para '
+        'finalização dessa entrega."'
+    ),
+
+    "ENDERECO EM ZONA RURAL": (
+        '"Prezados, remessa foi dada como "ZONA RURAL" favor confirmar com o '
+        'cliente se ele possuí dados de endereço alternativo em perímetro urbano '
+        'para finalização dessa entrega?"'
+    ),
+
+    "RECUSADO": (
+        '"Prezados, remessa teve ocorrência de "RECUSADO", '
+        'favor confirmar os dados de endereço de entrega, mais ponto de '
+        'referência e telefone ativo para contato."'
+    ),
 }
 
 
@@ -98,6 +129,21 @@ def valor_para_texto(valor) -> str:
     if isinstance(valor, float) and valor.is_integer():
         return str(int(valor))
     return str(valor).strip()
+
+
+def remover_dois_final(pedido) -> str:
+    """
+    Remove somente um dígito 2 quando ele estiver no final do Pedido.
+
+    Exemplo:
+    7490658792 -> 749065879
+    """
+    pedido = valor_para_texto(pedido)
+
+    if pedido.endswith("2"):
+        return pedido[:-1]
+
+    return pedido
 
 
 def validar_dataframe(df: pd.DataFrame) -> None:
@@ -152,39 +198,82 @@ def preparar_dataframe(df_entrada: pd.DataFrame) -> pd.DataFrame:
 
 def login_zendesk(page: Page, usuario: str, senha: str, solicitar_token, log) -> None:
     log("Abrindo Zendesk...")
-    page.goto(URL_ZENDESK, wait_until="domcontentloaded", timeout=120_000)
+
+    page.goto(
+        URL_ZENDESK,
+        wait_until="domcontentloaded",
+        timeout=120_000,
+    )
+
+    try:
+        page.locator(
+            '[data-test-id="header-toolbar-search-button"]'
+        ).wait_for(
+            state="visible",
+            timeout=8_000,
+        )
+
+        log("Sessão Zendesk reutilizada. MFA não foi necessário.")
+        return
+
+    except PlaywrightTimeoutError:
+        pass
+
+    log("Sessão expirada ou inexistente. Fazendo login...")
+
+    page.get_by_test_id("email-input").wait_for(
+        state="visible",
+        timeout=30_000,
+    )
+
     page.get_by_test_id("email-input").fill(usuario)
     page.get_by_test_id("password-input").fill(senha)
     page.get_by_test_id("submit-button").click()
 
     campo_token = page.get_by_test_id("mfa-challenge-input")
-    campo_token.wait_for(state="visible", timeout=60_000)
+    campo_token.wait_for(
+        state="visible",
+        timeout=60_000,
+    )
+
     token = solicitar_token().strip()
+
     if not token:
         raise ValueError("Token MFA não informado.")
+
     campo_token.fill(token)
     page.get_by_test_id("mfa-challenge-submit").click()
 
-    page.locator('[data-test-id="header-toolbar-search-button"]').wait_for(
-        state="visible", timeout=120_000
+    page.locator(
+        '[data-test-id="header-toolbar-search-button"]'
+    ).wait_for(
+        state="visible",
+        timeout=120_000,
     )
-    log("Login no Zendesk concluído.")
+
+    log("Login concluído. Sessão persistente salva.")
 
 
-def pesquisar_ticket(page: Page, pedido: str) -> bool:
+
+def pesquisar_ticket(page: Page, pedido: str, log=None) -> bool:
     """
-    Fluxo mapeado:
-    - abre a pesquisa;
-    - usa o campo mapeado;
-    - digita o Pedido;
-    - se aparecer search-dialog-matches-item, considera que já existe ticket;
-    - fecha a pesquisa e segue.
+    Mesma pesquisa da versão base do GitHub.
+
+    Faz somente 1 tentativa para o Pedido, mantendo os delays maiores:
+    - 1,5 s antes de preencher;
+    - 5 s para a pesquisa estabilizar;
+    - até 10 s aguardando o resultado;
+    - 1,5 s após fechar a pesquisa.
     """
+
+    if log:
+        log(f"Pesquisando pedido {pedido}...")
+
     page.locator(
         '[data-test-id="header-toolbar-search-button"]'
     ).click()
 
-    page.wait_for_timeout(700)
+    page.wait_for_timeout(1_500)
 
     container_pesquisa = page.locator(
         ".StyledTextInput-sc-1r6733h-0.StyledTextFauxInput-sc-yqw7j9-0"
@@ -205,6 +294,8 @@ def pesquisar_ticket(page: Page, pedido: str) -> bool:
     campo_pesquisa.click()
     campo_pesquisa.fill(pedido)
 
+    page.wait_for_timeout(5_000)
+
     resultado = page.locator(
         '[data-test-id="search-dialog-matches-item"]'
     )
@@ -212,14 +303,22 @@ def pesquisar_ticket(page: Page, pedido: str) -> bool:
     try:
         resultado.first.wait_for(
             state="visible",
-            timeout=8_000,
+            timeout=10_000,
         )
         encontrado = True
+
     except PlaywrightTimeoutError:
         encontrado = False
+
     finally:
         page.keyboard.press("Escape")
-        page.wait_for_timeout(700)
+        page.wait_for_timeout(1_500)
+
+    if log:
+        if encontrado:
+            log(f"Pedido {pedido}: ticket encontrado.")
+        else:
+            log(f"Pedido {pedido}: ticket não encontrado.")
 
     return encontrado
 
@@ -307,31 +406,27 @@ def preencher_ticket(page: Page, pedido: str, status_planilha: str, descricao: s
     editor.click()
     editor.fill(texto_ticket)
 
-    # Cria o ticket de verdade.
+    # VERSÃO FINAL: cria o ticket.
     botao_criar = page.locator(
         '[data-test-id="submit_button-button"]'
     )
+
     botao_criar.wait_for(
         state="visible",
         timeout=30_000,
     )
-    botao_criar.click()
 
-    # Dá tempo para o Zendesk concluir a criação antes de fechar a aba.
+    botao_criar.click()
     page.wait_for_timeout(2_000)
 
-    log(f"Pedido {pedido}: ticket criado.")
+    log(
+        f"Pedido {pedido}: ticket criado."
+    )
 
 
 
 def fechar_ticket_atual(page: Page, log: Callable[[str], None]) -> None:
-    """
-    Fecha a aba interna do ticket depois da criação.
-
-    Na versão final, se o Zendesk ainda pedir confirmação para sair sem salvar,
-    a automação NÃO confirma o descarte e gera erro, para evitar perder um ticket
-    cuja criação talvez não tenha terminado corretamente.
-    """
+    """Fecha a aba interna do ticket depois da criação."""
     botao_fechar = page.locator(
         '[data-test-id="close-button"]'
     ).last
@@ -343,16 +438,6 @@ def fechar_ticket_atual(page: Page, log: Callable[[str], None]) -> None:
 
     botao_fechar.click()
     page.wait_for_timeout(700)
-
-    confirmar_sem_salvar = page.locator(
-        '[data-test-id="ticket-close-confirm-modal-confirm-btn"]'
-    )
-
-    if confirmar_sem_salvar.count() > 0 and confirmar_sem_salvar.first.is_visible():
-        raise RuntimeError(
-            "O Zendesk pediu confirmação para sair sem salvar após a criação. "
-            "A automação não confirmou o descarte por segurança."
-        )
 
     log("Aba do ticket fechada.")
 
@@ -404,6 +489,50 @@ def preencher_observacao_fraction(page: Page, codigo: str, log) -> None:
     )
 
 
+
+def preencher_observacao_fraction_com_retentativas(
+    page: Page,
+    codigo: str,
+    log,
+    tentativas: int = 3,
+) -> None:
+    ultimo_erro = None
+
+    for tentativa in range(1, tentativas + 1):
+        try:
+            if tentativa > 1:
+                log(
+                    f"Código {codigo}: nova tentativa "
+                    f"{tentativa}/{tentativas}."
+                )
+                page.wait_for_timeout(2_000)
+
+            preencher_observacao_fraction(
+                page,
+                codigo,
+                log,
+            )
+
+            if tentativa > 1:
+                log(
+                    f"Código {codigo}: sucesso na tentativa "
+                    f"{tentativa}/{tentativas}."
+                )
+
+            return
+
+        except Exception as erro:
+            ultimo_erro = erro
+
+            log(
+                f"Código {codigo}: tentativa {tentativa}/{tentativas} "
+                f"falhou: {type(erro).__name__}: {erro}"
+            )
+
+    raise ultimo_erro
+
+
+
 def salvar_resultado(df: pd.DataFrame) -> Path:
     PASTA_RESULTADOS.mkdir(parents=True, exist_ok=True)
     nome = "tickets_zendesk_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".xlsx"
@@ -428,10 +557,13 @@ def executar_automacao(
       Status = CUSTODIA E Descricao presente no mapeamento.
 
     Versão final:
-      - Cria os tickets no Zendesk.
-      - Fecha a aba de cada ticket após a criação.
+      - Faz uma pesquisa por Pedido, mantendo os delays maiores.
+      - Remove somente o dígito 2 final do Pedido antes da pesquisa/preenchimento.
+      - Cria o ticket no Zendesk e fecha a aba depois da criação.
+      - Reutiliza a sessão persistente do Zendesk enquanto ela estiver válida.
       - Depois de concluir toda a fila do Zendesk, abre o Fraction.
-      - No Fraction inclui e salva REMETENTE ACIONADO. para cada ticket criado.
+      - No Fraction faz até 3 tentativas por Código em caso de erro.
+      - Preenche e salva REMETENTE ACIONADO.
     """
     df = preparar_dataframe(df_entrada)
     uz, sz = carregar_login("ZENDESK")
@@ -446,9 +578,20 @@ def executar_automacao(
     with sync_playwright() as p:
         # -------- FASE 1: ZENDESK --------
         log("===== FASE 1: ZENDESK =====")
-        bz = p.chromium.launch(headless=True, slow_mo=500, args=["--start-maximized"])
-        cz = bz.new_context(no_viewport=True)
-        pz = cz.new_page()
+        PERFIL_ZENDESK.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        cz = p.chromium.launch_persistent_context(
+            user_data_dir=str(PERFIL_ZENDESK),
+            headless=True,
+            slow_mo=500,
+            no_viewport=True,
+            args=["--start-maximized"],
+        )
+
+        pz = cz.pages[0] if cz.pages else cz.new_page()
 
         try:
             login_zendesk(pz, uz, sz, solicitar_token, log)
@@ -459,7 +602,7 @@ def executar_automacao(
                     atualizar_progresso("ZENDESK", pos, total)
 
                 linha = df.loc[i]
-                pedido = valor_para_texto(linha["Pedido"])
+                pedido = remover_dois_final(linha["Pedido"])
                 codigo = valor_para_texto(linha["Codigo"])
                 status = valor_para_texto(linha["Status"])
                 descricao = valor_para_texto(linha["Descricao"])
@@ -472,7 +615,7 @@ def executar_automacao(
 
                     log(f"[Zendesk {pos}/{total}] Pedido {pedido} | {descricao}")
 
-                    if pesquisar_ticket(pz, pedido):
+                    if pesquisar_ticket(pz, pedido, log):
                         df.at[i, "Ticket_Criado"] = "NAO - TICKET JA EXISTE"
                         df.at[i, "Observacao_Fraction"] = "NAO EXECUTADO"
                         continue
@@ -502,7 +645,6 @@ def executar_automacao(
 
         finally:
             cz.close()
-            bz.close()
 
         # -------- FASE 2: FRACTION --------
         log("===== FASE 2: FRACTION =====")
@@ -523,10 +665,11 @@ def executar_automacao(
                     log(f"[Fraction {pos}/{total}] Código {codigo}")
 
                     try:
-                        preencher_observacao_fraction(
+                        preencher_observacao_fraction_com_retentativas(
                             pf,
                             codigo,
                             log,
+                            tentativas=3,
                         )
 
                         df.at[i, "Observacao_Fraction"] = "SIM"
@@ -548,6 +691,24 @@ def executar_automacao(
                 cf.close()
                 bf.close()
 
-    caminho = salvar_resultado(df)
-    log(f"Resultado salvo em {caminho}")
-    return df, caminho
+    # A planilha final contém somente os pedidos válidos que entraram
+    # na fila de tickets (Status = CUSTODIA + Descricao mapeada).
+    df_resultado = df[
+        df["Fila_Ticket"] == "SIM"
+    ].copy()
+
+    df_resultado.reset_index(
+        drop=True,
+        inplace=True,
+    )
+
+    caminho = salvar_resultado(
+        df_resultado
+    )
+
+    log(
+        f"Resultado salvo em {caminho} "
+        f"com {len(df_resultado)} pedido(s) válido(s)."
+    )
+
+    return df_resultado, caminho

@@ -8,6 +8,7 @@ from automacao import executar_automacao, validar_dataframe
 st.set_page_config(layout="wide")
 st.title("Bot Zendesk Evelog")
 
+
 for chave, valor in {
     "thread": None,
     "estado": None,
