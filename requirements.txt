@@ -3,3 +3,4 @@ playwright
 pandas
 openpyxl
 xlrd
+python-dotenv

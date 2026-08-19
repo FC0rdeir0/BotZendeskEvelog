@@ -2,22 +2,43 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import os
 import re
 import unicodedata
 from typing import Callable
 
 import pandas as pd
+from dotenv import load_dotenv
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
-URL_ZENDESK = (
-    "https://atendimento.ultrafarma.com.br/auth/v3/signin"
-    "?return_to=https%3A%2F%2Fultrafarma2803.zendesk.com"
-    "%2Fagent%2Ffilters%2F28605876587419"
-    "&role=agent"
-)
-URL_FRACTION = "https://www.jadlog.com.br/FractionWeb/login.jad"
+load_dotenv()
 
-ARQUIVO_LOGIN = Path("login.xlsx")
+
+def env_obrigatoria(nome: str) -> str:
+    valor = os.getenv(nome, "").strip()
+
+    if not valor:
+        raise ValueError(
+            f"A variável {nome} não foi definida no arquivo .env."
+        )
+
+    return valor
+
+
+URL_ZENDESK = env_obrigatoria("URL_ZENDESK")
+URL_FRACTION = env_obrigatoria("URL_FRACTION")
+
+ZENDESK_USER = env_obrigatoria("ZENDESK_USER")
+ZENDESK_PASSWORD = env_obrigatoria("ZENDESK_PASSWORD")
+
+FRACTION_USER = env_obrigatoria("FRACTION_USER")
+FRACTION_PASSWORD = env_obrigatoria("FRACTION_PASSWORD")
+
+HEADLESS = os.getenv(
+    "HEADLESS",
+    "False",
+).strip().lower() == "true"
+
 PASTA_RESULTADOS = Path("resultados")
 PERFIL_ZENDESK = Path("perfil_zendesk")
 COLUNAS_OBRIGATORIAS = {"Codigo", "Pedido", "Status", "Descricao"}
@@ -151,21 +172,6 @@ def validar_dataframe(df: pd.DataFrame) -> None:
             "A planilha precisa conter Codigo, Pedido, Status e Descricao. "
             f"Ausentes: {sorted(faltantes)}"
         )
-
-
-def carregar_login(aba: str) -> tuple[str, str]:
-    if not ARQUIVO_LOGIN.exists():
-        raise FileNotFoundError("login.xlsx não encontrado.")
-    df = pd.read_excel(ARQUIVO_LOGIN, sheet_name=aba)
-    if "USER" not in df.columns or "PASSWORD" not in df.columns:
-        raise ValueError(f"A aba {aba} precisa conter USER e PASSWORD.")
-    if df.empty:
-        raise ValueError(f"A aba {aba} está vazia.")
-    usuario = valor_para_texto(df.loc[0, "USER"])
-    senha = valor_para_texto(df.loc[0, "PASSWORD"])
-    if not usuario or not senha:
-        raise ValueError(f"USER/PASSWORD vazio na aba {aba}.")
-    return usuario, senha
 
 
 def preparar_dataframe(df_entrada: pd.DataFrame) -> pd.DataFrame:
@@ -564,8 +570,11 @@ def executar_automacao(
       - Preenche e salva REMETENTE ACIONADO.
     """
     df = preparar_dataframe(df_entrada)
-    uz, sz = carregar_login("ZENDESK")
-    uf, sf = carregar_login("FRACTION")
+    uz = ZENDESK_USER
+    sz = ZENDESK_PASSWORD
+
+    uf = FRACTION_USER
+    sf = FRACTION_PASSWORD
 
     fila = df.index[df["Fila_Ticket"] == "SIM"].tolist()
     log(f"{len(fila)} pedido(s) entraram na fila de tickets.")
@@ -583,7 +592,7 @@ def executar_automacao(
 
         cz = p.chromium.launch_persistent_context(
             user_data_dir=str(PERFIL_ZENDESK),
-            headless=True,
+            headless=HEADLESS,
             slow_mo=500,
             no_viewport=True,
             args=["--start-maximized"],
@@ -647,7 +656,7 @@ def executar_automacao(
         # -------- FASE 2: FRACTION --------
         log("===== FASE 2: FRACTION =====")
         if fila_fraction:
-            bf = p.chromium.launch(headless=True, slow_mo=500, args=["--start-maximized"])
+            bf = p.chromium.launch(headless=HEADLESS, slow_mo=500, args=["--start-maximized"])
             cf = bf.new_context(no_viewport=True)
             pf = cf.new_page()
 
